@@ -16,6 +16,7 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('')
   const [room, setRoom] = useState(null)
   const [players, setPlayers] = useState([])
+  const [queue, setQueue] = useState([])
   const [notice, setNotice] = useState('Crie uma sala ou entre com um código para chamar seus amigos.')
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -24,13 +25,16 @@ export default function App() {
     const { data, error } = await supabase.from('room_players').select('id, display_name, seat, is_host').eq('room_id', roomId).order('seat')
     if (error) throw error
     setPlayers(data || [])
+    const { data: waiting, error: queueError } = await supabase.from('room_queue').select('id, display_name, queue_order, joined_at').eq('room_id', roomId).order('queue_order')
+    if (queueError) throw queueError
+    setQueue(waiting || [])
   }
 
   const enterRoomView = async (result) => {
     setRoom(result)
     setRoomCode(result.code)
     await loadLobby(result.room_id)
-    setNotice('Sala criada! Compartilhe o código com seus amigos.')
+    setNotice(result.queued ? 'Sala cheia! Você entrou no final da fila de espera.' : 'Você está na mesa! Compartilhe o convite com seus amigos.')
   }
 
   useEffect(() => {
@@ -38,6 +42,7 @@ export default function App() {
     const channel = supabase.channel(`lobby-${room.room_id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players', filter: `room_id=eq.${room.room_id}` }, () => loadLobby(room.room_id).catch(() => {}))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${room.room_id}` }, () => loadLobby(room.room_id).catch(() => {}))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_queue', filter: `room_id=eq.${room.room_id}` }, () => loadLobby(room.room_id).catch(() => {}))
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [room?.room_id])
@@ -78,6 +83,7 @@ export default function App() {
   const leaveLobby = () => {
     setRoom(null)
     setPlayers([])
+    setQueue([])
     setNotice('Você saiu da visualização da sala. Seu lugar permanece reservado até o momento.')
   }
 
@@ -116,7 +122,11 @@ export default function App() {
           <div className="room-code-display">{room.code.split('').map((c,i)=><span key={i}>{c}</span>)}</div>
           <div className="players-heading"><b><Users size={16}/> Jogadores</b><span>{players.length}/4</span></div>
           <div className="seat-grid">{[0,1,2,3].map(seat=>{const p=players.find(x=>x.seat===seat);return <div className={`seat ${p?'occupied':''}`} key={seat}><div className="seat-avatar">{p ? p.display_name.slice(0,1).toUpperCase() : '+'}</div><div><b>{p?.display_name || 'Aguardando jogador'}</b><small>{p ? (p.is_host?'Anfitrião':`Lugar ${seat+1}`) : `Lugar ${seat+1} disponível`}</small></div>{p?.is_host && <Crown size={15}/>}</div>})}</div>
-          <div className="lobby-actions"><button className="secondary-btn" onClick={leaveLobby}><ArrowLeft size={16}/> Voltar</button><span>O jogo começa quando os quatro lugares estiverem ocupados.</span></div>
+          <div className="queue-panel">
+            <div className="players-heading"><b><Users size={16}/> Fila de espera</b><span>{queue.length} aguardando</span></div>
+            {queue.length ? <div className="queue-list">{queue.map((person, index) => <div className="queue-person" key={person.id}><span className="queue-number">{index + 1}</span><b>{person.display_name}</b><small>Ordem de chegada</small></div>)}</div> : <p className="queue-empty">Ninguém aguardando. Quando a mesa estiver cheia, novos jogadores entram aqui.</p>}
+          </div>
+          <div className="lobby-actions"><button className="secondary-btn" onClick={leaveLobby}><ArrowLeft size={16}/> Voltar</button><span>Jogadores adicionais entram automaticamente na fila.</span></div>
         </div>
       </> : <>
         <div className="section-heading"><div><span className="eyebrow">VAMOS JOGAR?</span><h2>Entre na mesa</h2></div><span className="classic-tag">REGRAS CLÁSSICAS</span></div>
