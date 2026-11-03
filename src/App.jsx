@@ -75,9 +75,28 @@ export default function App() {
 
   const copyInvite = async () => {
     const invite = `${window.location.origin}/?sala=${room.code}`
-    await navigator.clipboard.writeText(invite)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(invite)
+      } else {
+        const field = document.createElement('textarea')
+        field.value = invite
+        field.setAttribute('readonly', '')
+        field.style.position = 'fixed'
+        field.style.opacity = '0'
+        document.body.appendChild(field)
+        field.select()
+        const successful = document.execCommand('copy')
+        document.body.removeChild(field)
+        if (!successful) throw new Error('Não foi possível copiar automaticamente.')
+      }
+      setCopied(true)
+      setNotice('Convite copiado! Envie o link para seus amigos.')
+      setTimeout(() => setCopied(false), 1800)
+    } catch (error) {
+      setCopied(false)
+      setNotice('Não foi possível copiar automaticamente. Código da sala: ' + room.code)
+    }
   }
 
   const leaveLobby = () => {
